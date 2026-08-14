@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f3f0e8">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="csrf-token" content="__CSRF_TOKEN__">
+  <title>Metadata Cleaner</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="identity" href="/" aria-label="Metadata Cleaner">
+      <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span><b>Metadata Cleaner</b><small>Kuva- ja videotiedostot</small></span>
+    </a>
+    <span class="privacy"><span aria-hidden="true">●</span> Omistajalle rajattu</span>
+  </header>
+
+  <main>
+    <section class="intro" aria-labelledby="title">
+      <p class="eyebrow">METADATA CLEANER</p>
+      <h1 id="title">Poista kuvan tai videon metadata.</h1>
+      <p class="lede">Valitse tiedosto. Saat jälkitarkistetun kopion, alkuperäinen tiedosto ei muutu.</p>
+    </section>
+
+    <section class="workspace" aria-labelledby="upload-title">
+      <div class="section-label"><span>01</span><h2 id="upload-title">Valitse tiedosto</h2></div>
+      <form id="upload-form">
+        <input id="file-input" name="file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,.m4v,.mkv" hidden>
+        <button id="dropzone" class="dropzone" type="button">
+          <span class="drop-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48"><path d="M24 33V11m0 0-8 8m8-8 8 8M9 30v7h30v-7"/></svg>
+          </span>
+          <strong>Pudota tiedosto tähän</strong>
+          <span>tai valitse laitteelta</span>
+          <small>JPEG, PNG, WebP, MP4, MOV, M4V, WebM tai MKV · enintään 1 Gt</small>
+        </button>
+      </form>
+
+      <div id="status" class="status" role="status" aria-live="polite" hidden>
+        <div class="status-head">
+          <span id="status-index">02</span>
+          <div><small id="status-kicker">KÄSITTELY</small><h2 id="status-title">Tarkistetaan tiedostoa</h2></div>
+        </div>
+        <div id="progress" class="progress"><i></i></div>
+        <p id="status-detail">Tiedosto siirretään salatun Tailnet-yhteyden kautta.</p>
+        <div id="result" class="result" hidden>
+          <dl>
+            <div><dt>Tarkistus</dt><dd>Hyväksytty</dd></div>
+            <div><dt>Poistetut kentät</dt><dd id="removed-count">0</dd></div>
+            <div><dt>Poistetut raidat</dt><dd id="dropped-count">0</dd></div>
+            <div><dt>Koko</dt><dd id="size-change">–</dd></div>
+          </dl>
+          <p id="result-note"></p>
+          <details id="exact-report" class="exact-report">
+            <summary>Näytä tarkka raportti</summary>
+            <p class="report-method"><b>Menetelmä:</b> <span id="report-method"></span></p>
+            <section id="removed-fields-section">
+              <h3>Poistetut metatiedot <span id="removed-fields-total"></span></h3>
+              <div id="removed-fields-list" class="report-list"></div>
+            </section>
+            <section id="removed-tracks-section">
+              <h3>Poistetut raidat <span id="removed-tracks-total"></span></h3>
+              <div id="removed-tracks-list" class="report-list"></div>
+            </section>
+            <section id="kept-section">
+              <h3>Säilytetyt tekniset tiedot <span id="kept-fields-total"></span></h3>
+              <div id="kept-fields-list" class="report-list"></div>
+            </section>
+            <section id="kept-tracks-section">
+              <h3>Säilytetyt raidat <span id="kept-tracks-total"></span></h3>
+              <div id="kept-tracks-list" class="report-list"></div>
+            </section>
+            <p id="verification-result" class="verification-result"></p>
+            <small>Raportti näkyy vain tässä vastauksessa. Arvoja ei kirjata palvelun lokiin eikä liitetä puhdistettuun tiedostoon.</small>
+          </details>
+          <a id="download" class="download" href="#">Lataa käsitelty kopio <span aria-hidden="true">↓</span></a>
+          <button id="again" class="again" type="button">Puhdista seuraava tiedosto</button>
+          <small class="expiry">Lataus toimii kerran ja vanhenee 30 minuutissa.</small>
+        </div>
+        <div id="error" class="error" hidden>
+          <p id="error-message"></p>
+          <button id="retry" type="button">Valitse toinen tiedosto</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="assurance" aria-labelledby="assurance-title">
+      <div class="section-label"><span>02</span><h2 id="assurance-title">Mitä tapahtuu</h2></div>
+      <div class="assurance-grid">
+        <article><b>01</b><h3>Ei pysyvää tallennusta</h3><p>Väliaikainen kopio poistetaan latauksen jälkeen tai viimeistään 30 minuutissa.</p></article>
+        <article><b>02</b><h3>Jälkitarkistus</h3><p>Palvelu avaa käsitellyn tiedoston uudelleen ja hylkää sen, jos poistettavaksi luokiteltuja kenttiä tai raitoja jää.</p></article>
+        <article><b>03</b><h3>Sisältö säilyy</h3><p>Kuvat rakennetaan pikseleistä. Videon kuva ja ääni kopioidaan ilman uudelleenpakkausta.</p></article>
+      </div>
+      <details>
+        <summary>Tuetut poistot ja rajat</summary>
+        <p>Kuvista poistuvat muun muassa EXIF, GPS, XMP, IPTC, kommentit ja väriprofiilit. Videoista poistuvat tunnisteet, sijainti, luontiajat, luvut sekä tekstitys-, data- ja liiteradat. Tiedostonimi korvataan neutraalilla nimellä. Animoituja kuvia ei vielä tueta. Käyttöjärjestelmän erilliset sivutiedostot tai pilvipalvelun tiedot eivät kuulu tiedoston sisäiseen metadataan.</p>
+      </details>
+    </section>
+  </main>
+
+  <footer><span>METADATA CLEANER / PRIVATE UTILITY</span><span>Ei analytiikkaa · ei ulkoisia pyyntöjä</span></footer>
+  <script src="/app.js" defer></script>
+</body>
+</html>
