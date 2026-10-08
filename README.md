@@ -35,7 +35,7 @@ The media parsers process untrusted files. Keep Python dependencies, Pillow, FFm
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install --require-hashes -r requirements.lock
 cp .env.example .env
 ```
 
@@ -52,12 +52,21 @@ The example host and identity values are placeholders. Replace them privately an
 
 ## Validation
 
+`requirements.txt` lists the direct dependencies. `requirements.lock` pins the
+complete tested dependency set and accepted package hashes. CI runs the media
+checks with FFmpeg and ExifTool and audits the locked Python dependencies.
+
 ```bash
 .venv/bin/python -m py_compile app.py tests/test_app.py
 .venv/bin/python -m unittest discover -s tests -v
 node --check static/app.js
 git diff --check
 ```
+
+To deliberately update the dependency lock, use Python 3.14 and
+`pip-tools==7.6.2` in a separate virtual environment, run
+`pip-compile --upgrade --generate-hashes --output-file=requirements.lock requirements.txt`,
+then rerun validation and `pip-audit -r requirements.lock` before committing it.
 
 ## Privacy notes
 

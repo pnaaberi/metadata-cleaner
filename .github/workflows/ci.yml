@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install media tools and locked Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg libimage-exiftool-perl
+          python -m pip install --require-hashes -r requirements.lock
+      - name: Verify metadata removal and request boundaries
+        run: |
+          python -m py_compile app.py tests/test_app.py
+          python -m unittest discover -s tests -v
+          node --check static/app.js
+          git diff --check
+      - name: Audit locked Python dependencies
+        run: |
+          python -m venv "$RUNNER_TEMP/audit-tools"
+          "$RUNNER_TEMP/audit-tools/bin/pip" install pip-audit==2.10.1
+          "$RUNNER_TEMP/audit-tools/bin/pip-audit" --disable-pip --no-deps -r requirements.lock
