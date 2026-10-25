@@ -84,6 +84,28 @@ class MetadataCleanerTests(unittest.TestCase):
             shutil.rmtree(root / "job")
             self.assert_clean_image(tagged, root, "image/webp")
 
+    def test_palette_png_keeps_transparent_pixels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "palette.png"
+            palette = Image.new("P", (16, 12), 0)
+            palette.putpalette([255, 0, 0, 0, 255, 0])
+            palette.putpixel((1, 1), 1)
+            palette.save(source, transparency=0)
+            with Image.open(source) as opened:
+                self.assertEqual(opened.convert("RGBA").getpixel((0, 0)), (255, 0, 0, 0))
+            output = self.assert_clean_image(source, root, "image/png")
+            with Image.open(output) as cleaned:
+                rgba = cleaned.convert("RGBA")
+                self.assertEqual(rgba.getpixel((0, 0)), (255, 0, 0, 0))
+                self.assertEqual(rgba.getpixel((1, 1)), (0, 255, 0, 255))
+            truncated = root / "truncated.png"
+            truncated.write_bytes(source.read_bytes()[:60])
+            shutil.rmtree(root / "job")
+            (root / "job").mkdir()
+            with self.assertRaises(app.CleanError):
+                app.clean_image(truncated, root / "job")
+
     def test_opaque_palette_png_passes_validation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

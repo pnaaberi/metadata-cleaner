@@ -322,6 +322,9 @@ def clean_image(source: Path, job_dir: Path) -> tuple[Path, str, dict[str, Any]]
                 raise CleanError("Kuvan pikselimäärä ylittää turvallisen käsittelyrajan.")
             opened.load()
             cleaned = ImageOps.exif_transpose(opened).copy()
+            if "transparency" in cleaned.info:
+                # Palette/colour-key transparency lives in info; move it into alpha first.
+                cleaned = cleaned.convert("RGBA")
             # Pillow copies source-side info (including JPEG comments) with pixels.
             # Keep the already-applied orientation, then drop all inherited metadata.
             cleaned.info.clear()
