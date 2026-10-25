@@ -49,6 +49,14 @@ IMAGE_DERIVED_FIELDS = {
     "BitsPerSample", "ColorComponents", "YCbCrSubSampling", "ImageSize",
     "Megapixels", "Compression",
 }
+# Header and palette fields every rebuilt PNG/WebP needs; they carry no source metadata.
+IMAGE_STRUCTURAL_FIELDS = {
+    "PNG": {
+        "ImageWidth", "ImageHeight", "BitDepth", "ColorType", "Compression",
+        "Filter", "Interlace", "Palette",
+    },
+    "RIFF": {"ImageWidth", "ImageHeight"},
+}
 VIDEO_CONTAINER_FIELDS = {"major_brand", "minor_version", "compatible_brands"}
 
 
@@ -143,6 +151,8 @@ def bounded_report_items(items: list[dict[str, str]]) -> dict[str, Any]:
 
 def is_image_derived(group: str, field: str) -> bool:
     if group in IMAGE_PSEUDO_GROUPS or group == "JFIF":
+        return True
+    if field in IMAGE_STRUCTURAL_FIELDS.get(group, ()):
         return True
     return group == "File" and field in IMAGE_DERIVED_FIELDS
 

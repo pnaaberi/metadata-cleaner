@@ -32,6 +32,88 @@ class MetadataCleanerTests(unittest.TestCase):
         )
         return source
 
+    def add_image_metadata(self, source: Path) -> Path:
+        subprocess.run(
+            [
+                "/usr/bin/exiftool", "-overwrite_original",
+                "-Artist=INERT_PERSON_SENTINEL", "-XMP-dc:Creator=INERT_XMP_SENTINEL",
+                "-Comment=INERT_COMMENT_SENTINEL",
+                "-GPSLatitude=60.1699", "-GPSLatitudeRef=N", str(source),
+            ],
+            check=True, capture_output=True,
+        )
+        return source
+
+    def assert_clean_image(self, source: Path, root: Path, media_type: str) -> Path:
+        job = root / "job"
+        job.mkdir()
+        output, actual_type, report = app.clean_image(source, job)
+        self.assertEqual(actual_type, media_type)
+        self.assertEqual(report["report"]["verification"]["status"], "passed")
+        self.assertEqual(app.exif_field_names(output, strict=True), [])
+        raw = output.read_bytes()
+        for sentinel in (b"INERT_PERSON_SENTINEL", b"INERT_XMP_SENTINEL", b"INERT_COMMENT_SENTINEL"):
+            self.assertNotIn(sentinel, raw)
+        removed = {item["field"] for item in report["report"]["removed"]["fields"]}
+        self.assertFalse(any(field.endswith((":ImageWidth", ":ImageHeight")) for field in removed))
+        return output
+
+    def test_plain_and_tagged_png_pass_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plain = root / "plain.png"
+            Image.new("RGB", (16, 12), "#6a8c77").save(plain)
+            self.assert_clean_image(plain, root, "image/png")
+            tagged = root / "tagged.png"
+            Image.new("RGBA", (16, 12), (106, 140, 119, 128)).save(tagged)
+            self.add_image_metadata(tagged)
+            shutil.rmtree(root / "job")
+            output = self.assert_clean_image(tagged, root, "image/png")
+            with Image.open(output) as cleaned:
+                self.assertEqual(cleaned.getpixel((0, 0)), (106, 140, 119, 128))
+
+    def test_plain_and_tagged_webp_pass_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plain = root / "plain.webp"
+            Image.new("RGB", (16, 12), "#6a8c77").save(plain, lossless=True)
+            self.assert_clean_image(plain, root, "image/webp")
+            tagged = root / "tagged.webp"
+            Image.new("RGBA", (16, 12), (106, 140, 119, 128)).save(tagged, lossless=True)
+            self.add_image_metadata(tagged)
+            shutil.rmtree(root / "job")
+            self.assert_clean_image(tagged, root, "image/webp")
+
+    def test_opaque_palette_png_passes_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "palette.png"
+            palette = Image.new("P", (16, 12), 0)
+            palette.putpalette([255, 0, 0, 0, 255, 0])
+            palette.save(source)
+            self.assert_clean_image(source, root, "image/png")
+
+    def test_image_validator_still_flags_private_png_and_webp_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            png = root / "tagged.png"
+            Image.new("RGB", (16, 12), "#6a8c77").save(png)
+            self.add_image_metadata(png)
+            png_fields = app.exif_field_names(png, strict=True)
+            self.assertIn("PNG:Comment", png_fields)
+            self.assertIn("XMP-dc:Creator", png_fields)
+            self.assertIn("IFD0:Artist", png_fields)
+            self.assertNotIn("PNG:ImageWidth", png_fields)
+            webp = root / "tagged.webp"
+            Image.new("RGB", (16, 12), "#6a8c77").save(webp, lossless=True)
+            self.add_image_metadata(webp)
+            webp_fields = app.exif_field_names(webp, strict=True)
+            self.assertIn("XMP-dc:Creator", webp_fields)
+            self.assertIn("GPS:GPSLatitude", webp_fields)
+            self.assertNotIn("RIFF:ImageWidth", webp_fields)
+            # A structural field name in a group of another format is not exempt.
+            self.assertFalse(app.is_image_derived("XMP-tiff", "ImageWidth"))
+
     def make_video(self, root: Path, suffix: str = ".mp4") -> Path:
         source = root / f"video{suffix}"
         subprocess.run(
