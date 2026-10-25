@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -49,7 +50,18 @@ IMAGE_DERIVED_FIELDS = {
     "BitsPerSample", "ColorComponents", "YCbCrSubSampling", "ImageSize",
     "Megapixels", "Compression",
 }
+# Header and palette fields every rebuilt PNG/WebP needs; they carry no source metadata.
+IMAGE_STRUCTURAL_FIELDS = {
+    "PNG": {
+        "ImageWidth", "ImageHeight", "BitDepth", "ColorType", "Compression",
+        "Filter", "Interlace", "Palette",
+    },
+    "RIFF": {"ImageWidth", "ImageHeight"},
+}
 VIDEO_CONTAINER_FIELDS = {"major_brand", "minor_version", "compatible_brands"}
+# The Matroska/WebM muxer always writes these; with +bitexact the encoder is exactly "Lavf".
+MATROSKA_ENCODER_VALUE = "Lavf"
+MATROSKA_DURATION_VALUE = re.compile(r"\d{2,}:\d{2}:\d{2}\.\d{9}")
 
 
 @dataclass
@@ -143,6 +155,8 @@ def bounded_report_items(items: list[dict[str, str]]) -> dict[str, Any]:
 
 def is_image_derived(group: str, field: str) -> bool:
     if group in IMAGE_PSEUDO_GROUPS or group == "JFIF":
+        return True
+    if field in IMAGE_STRUCTURAL_FIELDS.get(group, ()):
         return True
     return group == "File" and field in IMAGE_DERIVED_FIELDS
 
@@ -312,6 +326,9 @@ def clean_image(source: Path, job_dir: Path) -> tuple[Path, str, dict[str, Any]]
                 raise CleanError("Kuvan pikselimäärä ylittää turvallisen käsittelyrajan.")
             opened.load()
             cleaned = ImageOps.exif_transpose(opened).copy()
+            if "transparency" in cleaned.info:
+                # Palette/colour-key transparency lives in info; move it into alpha first.
+                cleaned = cleaned.convert("RGBA")
             # Pillow copies source-side info (including JPEG comments) with pixels.
             # Keep the already-applied orientation, then drop all inherited metadata.
             cleaned.info.clear()
@@ -394,14 +411,25 @@ def choose_video_output(probe: dict[str, Any], original_suffix: str) -> tuple[st
     raise CleanError("Videomuotoa ei tueta. Käytä MP4-, MOV-, M4V-, WebM- tai MKV-videota.")
 
 
+def matroska_generated_tag(probe: dict[str, Any], key: str, value: Any, *, stream: bool) -> bool:
+    if "matroska" not in str(probe.get("format", {}).get("format_name", "")):
+        return False
+    if stream:
+        return key.lower() == "duration" and bool(MATROSKA_DURATION_VALUE.fullmatch(str(value)))
+    return key.lower() == "encoder" and value == MATROSKA_ENCODER_VALUE
+
+
 def video_private_metadata(probe: dict[str, Any]) -> list[str]:
     fields: list[str] = []
-    for key in probe.get("format", {}).get("tags", {}) or {}:
-        if key.lower() not in {"major_brand", "minor_version", "compatible_brands"}:
-            fields.append(f"format:{key}")
+    for key, value in (probe.get("format", {}).get("tags", {}) or {}).items():
+        if key.lower() in VIDEO_CONTAINER_FIELDS or matroska_generated_tag(probe, key, value, stream=False):
+            continue
+        fields.append(f"format:{key}")
     for index, stream in enumerate(probe.get("streams", [])):
         for key, value in (stream.get("tags", {}) or {}).items():
             if key.lower() == "vendor_id" or (key.lower() == "language" and value in {"und", ""}):
+                continue
+            if matroska_generated_tag(probe, key, value, stream=True):
                 continue
             if key.lower() == "handler_name" and value in {"Video", "Audio", "VideoHandler", "SoundHandler"}:
                 continue
@@ -416,7 +444,8 @@ def video_metadata_report(probe: dict[str, Any]) -> tuple[list[dict[str, str]], 
     kept: list[dict[str, str]] = []
     for key, value in (probe.get("format", {}).get("tags", {}) or {}).items():
         item = {"field": f"säiliö:{key}", "value": report_value(value)}
-        (kept if key.lower() in VIDEO_CONTAINER_FIELDS else removed).append(item)
+        generated = key.lower() in VIDEO_CONTAINER_FIELDS or matroska_generated_tag(probe, key, value, stream=False)
+        (kept if generated else removed).append(item)
     for index, stream in enumerate(probe.get("streams", [])):
         for key, value in (stream.get("tags", {}) or {}).items():
             lowered = key.lower()
@@ -424,6 +453,7 @@ def video_metadata_report(probe: dict[str, Any]) -> tuple[list[dict[str, str]], 
                 lowered == "vendor_id"
                 or (lowered == "language" and value in {"und", ""})
                 or (lowered == "handler_name" and value in {"Video", "Audio", "VideoHandler", "SoundHandler"})
+                or matroska_generated_tag(probe, key, value, stream=True)
             )
             item = {"field": f"raita {index}:{key}", "value": report_value(value)}
             (kept if generated_default else removed).append(item)
