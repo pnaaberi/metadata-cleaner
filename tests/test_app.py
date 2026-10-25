@@ -138,12 +138,16 @@ class MetadataCleanerTests(unittest.TestCase):
 
     def make_video(self, root: Path, suffix: str = ".mp4") -> Path:
         source = root / f"video{suffix}"
+        if suffix == ".webm":
+            codecs = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-c:a", "libopus"]
+        else:
+            codecs = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]
         subprocess.run(
             [
                 "/usr/bin/ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                 "-f", "lavfi", "-i", "color=c=0x6a8c77:s=96x64:d=1",
                 "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
-                "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                "-shortest", *codecs,
                 "-metadata", "title=INERT_TITLE_SENTINEL",
                 "-metadata", "comment=INERT_COMMENT_SENTINEL",
                 "-metadata", "creation_time=2020-01-02T03:04:05Z",
@@ -212,6 +216,43 @@ class MetadataCleanerTests(unittest.TestCase):
             self.assertTrue(any("tyyppi=video" in item["value"] for item in report["report"]["kept_tracks"]["fields"]))
             self.assertTrue(any("tyyppi=audio" in item["value"] for item in report["report"]["kept_tracks"]["fields"]))
             self.assertEqual(report["report"]["verification"]["remaining_count"], 0)
+
+    def test_mkv_and_webm_pass_validation_with_muxer_generated_fields(self):
+        for suffix, media_type in ((".mkv", "video/x-matroska"), (".webm", "video/webm")):
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                source = self.make_video(root, suffix)
+                job = root / "job"
+                job.mkdir()
+                output, actual_type, report = app.clean_video(source, job, suffix)
+                self.assertEqual(actual_type, media_type)
+                probe = app.probe_video(output)
+                self.assertEqual(app.video_private_metadata(probe), [])
+                self.assertEqual({s["codec_type"] for s in probe["streams"]}, {"video", "audio"})
+                raw = output.read_bytes()
+                self.assertNotIn(b"INERT_TITLE_SENTINEL", raw)
+                self.assertNotIn(b"INERT_COMMENT_SENTINEL", raw)
+                removed = {item["field"].lower(): item["value"] for item in report["report"]["removed"]["fields"]}
+                self.assertEqual(removed["säiliö:title"], "INERT_TITLE_SENTINEL")
+                kept = {item["field"] for item in report["report"]["kept"]["fields"]}
+                self.assertIn("säiliö:encoder", kept)
+                self.assertEqual(report["report"]["verification"]["remaining_count"], 0)
+
+    def test_matroska_exemptions_reject_source_values_and_other_containers(self):
+        def probe(format_name, encoder, duration):
+            return {
+                "format": {"format_name": format_name, "tags": {"encoder": encoder}},
+                "streams": [{"codec_type": "video", "tags": {"DURATION": duration}}],
+            }
+        self.assertEqual(app.video_private_metadata(probe("matroska,webm", "Lavf", "00:00:01.000000000")), [])
+        self.assertEqual(
+            app.video_private_metadata(probe("matroska,webm", "HandBrake INERT", "INERT_SENTINEL")),
+            ["format:encoder", "stream0:DURATION"],
+        )
+        self.assertEqual(
+            app.video_private_metadata(probe("mov,mp4,m4a,3gp,3g2,mj2", "Lavf", "00:00:01.000000000")),
+            ["format:encoder", "stream0:DURATION"],
+        )
 
     def test_video_drops_attached_cover_art(self):
         with tempfile.TemporaryDirectory() as tmp:
